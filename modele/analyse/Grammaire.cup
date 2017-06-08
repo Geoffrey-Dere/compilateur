@@ -1,0 +1,308 @@
+package compilation.modele.analyse ;
+
+import java.util.ArrayList;
+import compilation.Code;
+import compilation.modele.arbreAbstrait.*;
+import compilation.modele.arbreAbstrait.instruction.*;
+import compilation.modele.arbreAbstrait.expression.*;
+import compilation.modele.arbreAbstrait.expression.arithmetique.*;
+import compilation.modele.arbreAbstrait.expression.logique.*;
+import java_cup.runtime.Symbol;
+import compilation.exception.*;
+import compilation.modele.Compilation;
+import compilation.modele.tds.*;
+action code {: 
+BlocInstructions bloc= new BlocInstructions() ;
+TableDesSymboles tds = TableDesSymboles.getInstance();
+	    :} ;
+   
+/* Parser code to change the way the parser reports errors (include
+   line and column number of the error). */
+parser code {:
+
+    /* Change the method report_error so it will display the line and column of where the error
+       occurred in the input as well as the reason for the error which is passed into the method
+       in the String 'message'. */
+       
+    public void report_error(String message, Object info) {
+    
+    if (info instanceof String){
+      System.err.println("errors  ==> " + info + " "+ message +"\n");
+    }
+    else {
+    	StringBuffer m = new StringBuffer("Error ");
+    	if (info instanceof java_cup.runtime.Symbol) 
+     	   m.append( "("+info.toString()+")" );     
+    	m.append(" : "+message);   
+    //	System.err.println(message);
+    }
+  }
+    
+    /* Change the method report_fatal_error so when it reports a fatal error it will display the 
+       line and column number of where the fatal error occurred in the input as well as the reason
+       for the fatal error which is passed into the method in the object 'message' and then exit.*/
+    public void report_fatal_error(String message, Object info) throws SyntaxicExceptions {
+     int ligne=0 ;
+    	
+    	if (info instanceof java_cup.runtime.Symbol) {
+    		java_cup.runtime.Symbol s = ((java_cup.runtime.Symbol) info);
+    		if (s.left >= 0) {                
+    			ligne = s.left+1;
+    		}
+    		   throw new SyntaxicExceptions("erreur d'expression",ligne,s);
+    	} 	
+  
+    }
+:};
+/* ------------Declaration of Terminals and Non Terminals Section----------- */
+/* Terminals (tokens returned by the scanner).  
+   Terminals that have no value are listed first and then terminals that do have a value, in this 
+   case a String value, are listed on the next line down. */
+
+
+terminal Symbol PAROUV, PARFER, PLUS, MOINS, MULT, EGAL,DIFFERENT , VRAI, FAUX, INFERIEUR, SUPERIEUR, UMOINS, POINTVIRGULE, FIN, VIRGULE,
+CROCHO,CROCHF, retourne;
+terminal String  csteEntiere,idf, classe,debut, publicVar,priveeVar, lire, ecrire, csteChaine, entier, booleen, nouveau; 
+
+/* Non terminals used in the grammar section.  
+   Non terminals that have an object value are listed first and then non terminals that have an 
+   integer value are listed.  An object value means that it can be any type, it isn't set to a 
+   specific type.  So it could be an Integer or a String or whatever. */
+   
+non terminal Expression EXP;
+non terminal ArbreAbstrait SYSTEM , CLASSE, DECL_CHAMP, DECL_CONST, DECLARATION, DECL_FONCTION,DECL_VAR ;
+non terminal Identifiant ACCES;
+non terminal String STATUT, TYPE;
+non terminal String TYPE_RES ;
+non terminal ArrayList<String> CHAMP,VAR;
+non terminal ArrayList<SymboleVariable> PARAMETRES,PARAM ;  
+non terminal Instruction INSTRUCTION, LIRE, ECRIRE, AFFECT, INTANCIATION, RETOURNE;
+
+non terminal ArrayList<Expression> PAR_EFF , EFF;
+non terminal Bloc LIST_INSTRUCTION, LDECLARATION;
+
+
+precedence left PLUS, MOINS;
+precedence left MULT ;
+precedence left EGAL,DIFFERENT, INFERIEUR, SUPERIEUR;
+precedence left UMOINS;
+ 
+/* ----------------------------Grammar Section-------------------- */
+
+start with SYSTEM;
+
+SYSTEM ::= CLASSE:e
+		{: RESULT=e; :}
+		;
+		
+CLASSE ::= classe idf:i LDECLARATION:b FIN
+        {:  bloc.add(b) ; RESULT = bloc; :} 
+		;
+
+LDECLARATION ::= LDECLARATION:bloc DECLARATION:li
+					{: if(li!=null) bloc.add(li); RESULT = bloc; :}
+							
+				| {:
+				tds.EntrerBloc();
+				 RESULT = new Bloc(); :}
+			
+				;
+		
+DECLARATION ::= DECL_CHAMP
+			{: RESULT = null; :} 
+			|  DECL_CONST:d  
+			{: RESULT = d ; :}
+			| DECL_FONCTION:d
+			{: RESULT = null ; :}
+			;
+
+
+DECL_CHAMP ::= STATUT:s TYPE:t idf:i CHAMP:c POINTVIRGULE
+			{:   c.add(0,i);
+				 tds.ajouter(s, t , ileft+1, c); ; 
+			:}
+			;
+
+CHAMP ::= 	CHAMP:c VIRGULE idf:i
+			{: c.add(i); RESULT = c; :}
+	 		| {: RESULT = new ArrayList<String>(); :}
+			;
+		
+DECL_VAR ::=  DECL_VAR TYPE:t idf:i VAR:c POINTVIRGULE
+	{:           c.add(0,i);
+				 tds.ajouter(Code.PUBLIQUE, t , ileft+1, c); ;  :}
+			| %prec UMOINS
+		 ;
+
+VAR ::= VAR:c VIRGULE idf:i
+{: c.add(i); RESULT = c; :}
+	 		| {: RESULT = new ArrayList<String>(); :}
+			;
+		
+		
+STATUT ::= publicVar:p
+		{: RESULT = p; :}
+		| priveeVar:p
+		{: RESULT = p; :}
+		;
+		
+			
+DECL_CONST ::= INSTRUCTION:i 
+			{: RESULT=i; :}	
+			;
+			
+			
+DECL_FONCTION ::= STATUT:statut TYPE:t idf:i PARAMETRES:p  debut DECL_VAR:d LIST_INSTRUCTION:b FIN
+				{: // System.out.println("entrer declaration fonction"); 
+				   tds.sortirBloc(); 
+				   EntreeFonction e= new EntreeFonction(i,p);
+				   SymboleFonction s = new SymboleFonction(statut,t,p,i);
+				   tds.ajouter(e, s , ileft); ; 
+				   Fonction f = new Fonction(s,b,i,ileft+1);
+				   bloc.addFonction(f);
+				   :}
+				   
+				;
+	
+TYPE ::=  entier:e
+		{: RESULT=Code.ENTIER; :}
+		| booleen:b
+		{: RESULT=Code.BOOLEEN; :} 
+		| idf:i
+		{: RESULT=i; :} 
+		|entier CROCHO CROCHF
+		{: RESULT = Code.TABLEAUENTIER; :} 
+		;
+			
+PARAMETRES ::= PAROUV PARAM:p PARFER
+			{: //System.out.println("entrer parametres"); 
+			RESULT=p; :}
+			;
+
+
+PARAM ::= VIRGULE TYPE:t idf:i PARAM:p 
+		{:
+		EntreeVariable e = new EntreeVariable(i);
+		SymboleVariable s = new SymboleVariable(t);
+		 tds.ajouter(e, s, ileft+1);
+		p.add(0,s); RESULT = p; :}
+		| TYPE:t idf:i PARAM:p 
+		{:EntreeVariable e = new EntreeVariable(i);
+			SymboleVariable s = new SymboleVariable(t);
+		tds.ajouter(e, s,ileft+1); 
+		p.add(s); RESULT=p; :} 
+		| {: 
+		 tds.EntrerBloc();
+		RESULT =  new ArrayList<SymboleVariable>(); :}
+		;
+		
+LIST_INSTRUCTION ::= LIST_INSTRUCTION:b INSTRUCTION:i
+					{: b.add(i); RESULT=b; :}
+				| INSTRUCTION:i
+				{: 
+				Bloc bloc = new Bloc(); bloc.add(i);
+				RESULT=bloc;
+				:}
+				;
+	
+		
+INSTRUCTION ::= AFFECT:a POINTVIRGULE
+			{: RESULT = a ; :}
+			| LIRE:l POINTVIRGULE
+			{: RESULT = l ; :}
+			| ECRIRE:e POINTVIRGULE
+			{: RESULT = e ; :}
+			| INTANCIATION:i POINTVIRGULE
+			{: RESULT = i ; :}
+			| RETOURNE:e POINTVIRGULE
+			{: RESULT = e ; :}
+			;
+			
+RETOURNE ::= retourne EXP:e
+			{: RESULT= new Retourne(e, eleft+1); :}
+			;
+
+
+AFFECT ::= ACCES:a EGAL EXP:e
+			{: RESULT = new Affectation(a,e,aleft+1) ; 
+			:}	
+			;
+
+
+ACCES ::= idf:i
+		{: RESULT = new Identifiant(i,ileft+1); :}
+		| idf:i CROCHO EXP:e CROCHF
+		{: RESULT = new Identifiant(i,e, ileft+1); :}
+		;
+
+
+LIRE ::= lire idf:i
+		{: RESULT = new Lire(i,ileft+1); :}
+		;
+
+		
+ECRIRE ::= ecrire EXP:e
+		{: RESULT = new EcrireVar(e,eleft+1) ; :}
+		| ecrire csteChaine:c
+		{: 
+		RESULT = new EcrireChaine(cleft+1,c); :}
+		;
+
+INTANCIATION ::= ACCES:idf EGAL nouveau entier:e CROCHO EXP:exp CROCHF
+			  {: RESULT = new Instanciation(idf,e,exp,expleft+1); :}
+			;
+
+PAR_EFF ::= EXP:e EFF:list
+		{: list.add(0,e); RESULT = list; :}
+		| {: RESULT = new ArrayList<Expression>() ; :}
+	;
+	
+EFF::= EFF:list VIRGULE EXP:e
+	{: list.add(e);
+	RESULT = list; :}
+	| {: RESULT = new ArrayList<Expression>() ; :}
+	; 
+
+EXP ::= idf:i PAROUV PAR_EFF:liste PARFER
+		{: RESULT  = new IdentifiantFonction(i,liste,ileft+1); :}
+		|idf:i
+		{: RESULT = new Identifiant(i); :}
+		|csteEntiere:c
+		{: RESULT = new Constante(c); :}
+	
+		| PAROUV EXP:e PARFER
+		{: RESULT =e; :}
+		
+		| MOINS EXP:e
+		{: RESULT = new MoinsUnaire(e);  :}
+		%prec UMOINS
+		
+		| VRAI
+		{: RESULT = new Booleen("1"); :}
+		
+	    | FAUX
+		{: RESULT = new Booleen("0"); :}
+		
+		| EXP:e1 PLUS:p EXP:e2
+		{:RESULT = new Plus(e1,e2,pleft); :}
+		
+		| EXP:e1 MOINS:m EXP:e2
+		{: RESULT = new Moins(e1,e2,mleft); :}
+		
+		| EXP:e1 MULT:m EXP:e2
+		{: RESULT = new Mult(e1,e2,mleft); :}	
+		
+		| 	EXP:e1 EGAL:e EXP:e2
+		{: RESULT = new Egal(e1,e2,eleft);  :}
+		
+		| 	EXP:e1 DIFFERENT:d EXP:e2
+		{: RESULT = new Different(e1,e2,dleft);  :}
+		
+		| 	EXP:e1 SUPERIEUR:s EXP:e2
+		{: RESULT = new Superieur(e1,e2,sleft);  :}
+		
+		| 	EXP:e1 INFERIEUR:i EXP:e2
+		{: RESULT = new Inferieur(e1,e2,ileft);  :}
+		;	
+		
+//fonction
